@@ -1,26 +1,31 @@
 # 2100011025, Yibo Wang, PKU CFD CLASS (2024)
 import numpy as np
 import matplotlib.pyplot as plt
-from mesh import generate_mesh
 from tqdm import tqdm
-import time
+from mesh import generate_mesh
+from splitflux import ftcs_split_x, ftcs_split_y
+from weno import weno5_flux, apply_boundary_condition
+import os
+
+os.makedirs("./fig/ftcs/gif", exist_ok=True)
 
 AB = 1
 AE = 2.4
 DE = 4
-angle = 0
+angle = 15
 
-nx = 300
-ny = 150
+nx = 200
+ny = 100
 dx = DE / nx
 dy = AE / ny
 
 R = 287.14
 gamma = 1.4
 
-nt = 2000
-interval = 200
-dt = 0.001
+nt = 30000
+interval = 500
+
+dt = 1e-6
 
 mesh_x, mesh_y, nx1 = generate_mesh(AB, AE, DE, angle, nx, ny)
 
@@ -40,8 +45,12 @@ def plot_mesh(mesh_x, mesh_y):
 plot_mesh(mesh_x, mesh_y)
 
 
-def compute_flux(rho, u, v, p):
-    """Compute the flux vectors."""
+def compute_flux(U):
+    """compute the flux vectors."""
+    rho = U[0]
+    u = U[1] / rho
+    v = U[2] / rho
+    p = (gamma - 1) * (U[3] - 0.5 * rho * (u**2 + v**2))
     E = p / (gamma - 1) + 0.5 * rho * (u**2 + v**2)
     F = np.zeros((4, *rho.shape))
     G = np.zeros((4, *rho.shape))
@@ -61,18 +70,19 @@ def compute_flux(rho, u, v, p):
 
 def initial_conditions(nx, ny):
     """initial conditions for density, velocity, and pressure"""
-    rho = np.ones((nx, ny))
+
+    u1 = 686.47
+    p1 = 99719
+    rho1 = 1.185
+
+    rho = np.ones((nx, ny)) * rho1
     u = np.zeros((nx, ny))
     v = np.zeros((nx, ny))
-    p = np.ones((nx, ny))
-
-    u1 = 2
-    p1 = 5
+    p = np.ones((nx, ny)) * p1
 
     u[:nx//4, :] = u1
-    p[:nx//4, :] = p1
-    u[:, ny-1] = u1
-    u[:nx//4, 0] = u1
+    # u[:, ny-1] = u1
+    # u[:nx//4, 0] = u1
 
     return rho, u, v, p
 
@@ -101,58 +111,43 @@ def jacobi_coeff(nx, ny):
 F_x, F_y, G_y = jacobi_coeff(nx, ny)
 
 
-def lax_friedrichs_step(U, dt):
+def ftcs_step(U, dt):
     """perform one Lax-Friedrichs time step."""
-    F, G = compute_flux(U[0], U[1] / U[0], U[2] / U[0], (U[3] -
-                        0.5 * U[0] * (U[1]**2 + U[2]**2) / U[0]**2) * (gamma - 1))
+    F = ftcs_split_x(U)
+    G = ftcs_split_y(U)
+    F0, _ = compute_flux(U)
+    Fy = (F0[:, :, :-1] + F0[:, :, 1:]) / 2
+
+    Fx_weno = weno5_flux(F[:, :-4, :], F[:, 1:-3, :],
+                         F[:, 2:-2, :], F[:, 3:-1, :], F[:, 4:, :])
+    Fx_weno = Fx_weno[:, :, 3:-3]
+
+    Fy_weno = weno5_flux(Fy[:, :, :-4], Fy[:, :, 1:-3],
+                         Fy[:, :, 2:-2], Fy[:, :, 3:-1], Fy[:, :, 4:])
+    Fy_weno = Fy_weno[:, 3:-3, :]
+
+    Gy_weno = weno5_flux(G[:, :, :-4], G[:, :, 1:-3],
+                         G[:, :, 2:-2], G[:, :, 3:-1], G[:, :, 4:])
+    Gy_weno = Gy_weno[:, 3:-3, :]
 
     U_new = U.copy()
-    dU_dt = -((F[:, 2:, 1:-1] - F[:, :-2, 1:-1]) / (2 * dx)) * \
-        F_x[:, 2:, 1:-1] - ((F[:, 1:-1, 2:] - F[:, 1:-1, :-2]) / (2 * dy)) * \
-        F_y[:, 2:, 1:-1] - ((G[:, 1:-1, 2:] - G[:, 1:-1, :-2]
-                             ) / (2 * dy)) * G_y[:, 2:, 1:-1]
-    U_new[:, 1:-1, 1:-1] = 0.25 * \
-        (U[:, 2:, 1:-1] + U[:, :-2, 1:-1] +
-         U[:, 1:-1, 2:] + U[:, 1:-1, :-2]) + dt * dU_dt
 
-    rho = U_new[0]
-    u = U_new[1] / rho
-    v = U_new[2] / rho
-    p = (gamma - 1) * (U_new[3] - 0.5 * rho * (u**2 + v**2))
-    T = p / (R * rho)
+    dFdx = (Fx_weno[:, 1:, :] - Fx_weno[:, :-1, :]) / (dx)
+    dFdy = (Fy_weno[:, :, 1:] - Fy_weno[:, :, :-1]) / (dy)
+    dGdy = (Gy_weno[:, :, 1:] - Gy_weno[:, :, :-1]) / (dy)
 
-    u[1:, -1] = u[1:, -2]
-    u[-1, 1:] = u[-2, 1:]
+    dU_dt = -dFdx * F_x[:, 3:-3, 3:-3] - dFdy * \
+        F_y[:, 3:-3, 3:-3] - dGdy * G_y[:, 3:-3, 3:-3]
 
-    v[1:, -1] = v[1:, -2]
-    v[-1, 1:] = v[-2, 1:]
+    U_ave = 0.25 * (U[:, 2:-4, 3:-3] + U[:, 4:-2, 3:-3] +
+                    U[:, 3:-3, 2:-4] + U[:, 3:-3, 4:-2])
+    U_in = U[:, 3:-3, 3:-3]
 
-    p[1:, -1] = p[1:, -2]
-    p[1:, 0] = p[1:, 1]
-    p[-1, :] = p[-2, :]
+    eta = 0.3
 
-    T[1:, -1] = T[1:, -2]
-    T[1:, 0] = T[1:, 1]
-    T[-1, :] = T[-2, :]
+    U_new[:, 3:-3, 3:-3] = eta * U_ave + (1-eta) * U_in + dt * dU_dt
 
-    U_new[0, 1:, -1] = p[1:, -1] / (R * T[1:, -1])
-    U_new[0, 1:, 0] = p[1:, 0] / (R * T[1:, 0])
-    U_new[0, -1, :] = p[-1, :] / (R * T[-1, :])
-
-    U_new[1, 1:, -1] = U_new[0, 1:, -1] * u[1:, -1]
-    U_new[1, 1:, 0] = U_new[0, 1:, 0] * u[1:, 0]
-    U_new[1, -1, :] = U_new[0, -1, :] * u[-1, :]
-
-    U_new[2, 1:, -1] = U_new[0, 1:, -1] * v[1:, -1]
-    U_new[2, 1:, 0] = U_new[0, 1:, 0] * v[1:, 0]
-    U_new[2, -1, :] = U_new[0, -1, :] * v[-1, :]
-
-    U_new[3, 1:, -1] = p[1:, -1] / \
-        (gamma - 1) + 0.5 * U_new[0, 1:, -1] * (u[1:, -1]**2 + v[1:, -1]**2)
-    U_new[3, 1:, 0] = p[1:, 0] / (gamma - 1) + \
-        0.5 * U_new[0, 1:, 0] * (u[1:, 0]**2 + v[1:, 0]**2)
-    U_new[3, -1, :] = p[-1, :] / \
-        (gamma - 1) + 0.5 * U_new[0, -1, :] * (u[-1, :]**2 + v[-1, :]**2)
+    U_new = apply_boundary_condition(U_new, dx, dy, nx1, angle)
 
     return U_new
 
@@ -169,44 +164,130 @@ def paint(U, name="shock_wave"):
 
     plt.subplot(321)
     plt.pcolormesh(mesh_x, mesh_y, rho, shading='auto',
-                   cmap='viridis', vmin=0, vmax=5)
+                   cmap='viridis')
     plt.colorbar(label='Density')
     plt.title('Density')
 
     plt.subplot(322)
     plt.pcolormesh(mesh_x, mesh_y, u, shading='auto',
-                   cmap='viridis', vmin=0, vmax=5)
+                   cmap='viridis')
     plt.colorbar(label='Velocity u')
     plt.title('Velocity u')
 
     plt.subplot(323)
     plt.pcolormesh(mesh_x, mesh_y, v, shading='auto',
-                   cmap='viridis', vmin=0, vmax=3)
+                   cmap='viridis')
     plt.colorbar(label='Velocity v')
     plt.title('Velocity v')
 
     plt.subplot(324)
     plt.pcolormesh(mesh_x, mesh_y, p, shading='auto',
-                   cmap='viridis', vmin=0, vmax=20)
+                   cmap='viridis')
     plt.colorbar(label='Pressure')
     plt.title('Pressure')
 
     plt.subplot(325)
     plt.pcolormesh(mesh_x, mesh_y, np.sqrt(u**2+v**2),
-                   shading='auto', cmap='viridis', vmin=0, vmax=5)
+                   shading='auto', cmap='viridis')
     plt.colorbar(label='Velocity')
     plt.title('Velocity')
 
     plt.subplot(326)
     plt.pcolormesh(mesh_x, mesh_y, T, shading='auto',
-                   cmap='viridis', vmin=0, vmax=0.03)
+                   cmap='viridis')
     plt.colorbar(label='Temperature')
     plt.title('Temperature')
 
     plt.tight_layout()
-    plt.savefig('./fig/ftcs/gif/'+name+'.png')
+    plt.savefig('./fig/ftcs/'+name+'.png')
     plt.show()
     plt.close()
+
+
+def paint_with_line(U, name="shock_wave"):
+    """plot the results"""
+    rho = U[0]
+    u = U[1] / rho
+    v = U[2] / rho
+    p = (gamma - 1) * (U[3] - 0.5 * rho * (u**2 + v**2))
+    T = p / (R * rho)
+
+    line_x = [1, 3.4]
+    line_y = [0, 2.4]
+
+    plt.figure(figsize=(16, 12))
+
+    plt.subplot(321)
+    plt.pcolormesh(mesh_x, mesh_y, rho, shading='auto',
+                   cmap='viridis')
+    plt.plot(line_x, line_y, color='gray',
+             linestyle='-.', linewidth=2, alpha=0.5)
+    plt.colorbar(label='Density')
+    plt.title('Density')
+
+    plt.subplot(322)
+    plt.pcolormesh(mesh_x, mesh_y, u, shading='auto',
+                   cmap='viridis')
+    plt.plot(line_x, line_y, color='gray',
+             linestyle='-.', linewidth=2, alpha=0.5)
+    plt.colorbar(label='Velocity u')
+    plt.title('Velocity u')
+
+    plt.subplot(323)
+    plt.pcolormesh(mesh_x, mesh_y, v, shading='auto',
+                   cmap='viridis')
+    plt.plot(line_x, line_y, color='gray',
+             linestyle='-.', linewidth=2, alpha=0.5)
+    plt.colorbar(label='Velocity v')
+    plt.title('Velocity v')
+
+    plt.subplot(324)
+    plt.pcolormesh(mesh_x, mesh_y, p, shading='auto',
+                   cmap='viridis')
+    plt.plot(line_x, line_y, color='gray',
+             linestyle='-.', linewidth=2, alpha=0.5)
+    plt.colorbar(label='Pressure')
+    plt.title('Pressure')
+
+    plt.subplot(325)
+    plt.pcolormesh(mesh_x, mesh_y, np.sqrt(u**2+v**2),
+                   shading='auto', cmap='viridis')
+    plt.plot(line_x, line_y, color='gray',
+             linestyle='-.', linewidth=2, alpha=0.5)
+    plt.colorbar(label='Velocity')
+    plt.title('Velocity')
+
+    plt.subplot(326)
+    plt.pcolormesh(mesh_x, mesh_y, T, shading='auto',
+                   cmap='viridis')
+    plt.plot(line_x, line_y, color='gray',
+             linestyle='-.', linewidth=2, alpha=0.5)
+    plt.colorbar(label='Temperature')
+    plt.title('Temperature')
+
+    plt.tight_layout()
+    plt.savefig('./fig/ftcs/'+name+'.png')
+    plt.show()
+    plt.close()
+
+
+def draw_gif():
+    """ produce a GIF file out of PNGs """
+    from PIL import Image
+    import os
+    print("Making GIF...")
+    image_folder = './fig/ftcs/gif/'
+    image_files = sorted([img for img in os.listdir(
+        image_folder) if img.endswith('.png')])
+
+    images = [Image.open(os.path.join(image_folder, img))
+              for img in image_files]
+
+    gif_path = './fig/ftcs/gif/output.gif'
+    images[0].save(gif_path, save_all=True, append_images=images[1:],
+                   optimize=False, duration=100, loop=0)
+
+    print(f"GIF saved as {gif_path}")
 
 
 rho, u, v, p = initial_conditions(nx, ny)
@@ -217,8 +298,10 @@ U[1] = rho * u
 U[2] = rho * v
 U[3] = E
 
+paint(U, name="initial_condition")
+
 for t in tqdm(range(nt), desc="time step"):
-    U = lax_friedrichs_step(U, dt)
+    U = ftcs_step(U, dt)
     if (t+1) % interval == 0:
         index = t//interval + 1
-        paint(U, name=f"shock_wave_{index:03d}s")
+        paint(U, name=f"gif/shock_wave_{index:03d}s")

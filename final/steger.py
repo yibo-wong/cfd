@@ -11,15 +11,15 @@ AE = 2.4
 DE = 4
 angle = 10
 
-nx = 300
-ny = 150
+nx = 160
+ny = 80
 dx = DE / nx
 dy = AE / ny
 
 R = 287.14
 gamma = 1.4
 
-nt = 10000
+nt = 4000
 interval = 500
 
 dt = 0.001
@@ -42,8 +42,12 @@ def plot_mesh(mesh_x, mesh_y):
 plot_mesh(mesh_x, mesh_y)
 
 
-def compute_flux(rho, u, v, p):
+def compute_flux(U):
     """compute the flux vectors."""
+    rho = U[0]
+    u = U[1] / rho
+    v = U[2] / rho
+    p = (gamma - 1) * (U[3] - 0.5 * rho * (u**2 + v**2))
     E = p / (gamma - 1) + 0.5 * rho * (u**2 + v**2)
     F = np.zeros((4, *rho.shape))
     G = np.zeros((4, *rho.shape))
@@ -69,7 +73,7 @@ def initial_conditions(nx, ny):
     p = np.ones((nx, ny))
 
     u1 = 2
-    p1 = 5
+    p1 = 3
 
     u[:nx//4, :] = u1
     p[:nx//4, :] = p1
@@ -105,24 +109,26 @@ F_x, F_y, G_y = jacobi_coeff(nx, ny)
 
 def steger_step(U, dt):
     """perform one Lax-Friedrichs time step."""
-    Fp, Fm = steger_split_x(U)
-    # Fpy, Fmy = steger_split_y(U)
-    Gp, Gm = steger_split_y(U)
+    F = steger_split_x(U)
+    G = steger_split_y(U)
+    F0, _ = compute_flux(U)
 
     U_new = U.copy()
-    dFdx = (Fp[:, 1:-1, 1:-1] - Fp[:, :-2, 1:-1] +
-            Fm[:, 2:, 1:-1] - Fm[:, 1:-1, 1:-1]) / (2 * dx)
-    dFdy = (Fp[:, 1:-1, 2:] - Fp[:, 1:-1, :-2] +
-            Fm[:,  1:-1, 2:] - Fm[:, 1:-1, :-2]) / (2 * dy)
-    dGdy = (Gp[:, 1:-1, 1:-1] - Gp[:, 1:-1, :-2] +
-            Gm[:,  1:-1, 2:] - Gm[:, 1:-1, 1:-1]) / (2 * dy)
 
-    dU_dt = -dFdx * F_x[:, 2:, 1:-1] - dFdy * \
-        F_y[:, 2:, 1:-1] - dGdy * G_y[:, 2:, 1:-1]
-    U_new[:, 1:-1, 1:-1] = U[:, 1:-1, 1:-1] + dt * dU_dt
-    # U_new[:, 1:-1, 1:-1] = 0.25 * \
-    #     (U[:, 2:, 1:-1] + U[:, :-2, 1:-1] +
-    #      U[:, 1:-1, 2:] + U[:, 1:-1, :-2]) + dt * dU_dt
+    dFdx = (F[:, 1:, 1:-1] - F[:, :-1, 1:-1]) / (dx)
+    dFdy = (F0[:, 1:-1, 2:] - F0[:, 1:-1, :-2]) / (2*dy)
+    dGdy = (G[:, 1:-1, 1:] - G[:, 1:-1, :-1]) / (dy)
+
+    dU_dt = -dFdx * F_x[:, 1:-1, 1:-1] - dFdy * \
+        F_y[:, 1:-1, 1:-1] - dGdy * G_y[:, 1:-1, 1:-1]
+    # U_new[:, 1:-1, 1:-1] = U[:, 1:-1, 1:-1] + dt * dU_dt
+    U_ave = 0.25 * (U[:, 2:, 1:-1] + U[:, :-2, 1:-1] +
+                    U[:, 1:-1, 2:] + U[:, 1:-1, :-2])
+    U_in = U[:, 1:-1, 1:-1]
+
+    eta = 0.6
+
+    U_new[:, 1:-1, 1:-1] = eta*U_ave + (1-eta)*U_in + dt * dU_dt
 
     rho = U_new[0]
     u = U_new[1] / rho

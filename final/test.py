@@ -1,14 +1,15 @@
 import numpy as np
+from matplotlib import pyplot as plt
 
-u = 1
-v = 2
-rho = 1
-p = 5
+u0 = 13
+v0 = 21
+rho0 = 12
+p0 = 54
 gamma = 1.4
 
-du = 0.01
-dv = 0.03
-drho = 0.02
+du = 0.5
+dv = 0.3
+drho = 0.2
 dp = 0.01
 
 
@@ -101,7 +102,7 @@ def steger_split_x(U):
     X_inv[3, 2] = -0.5 * v / e
     X_inv[3, 3] = 0.5 / e
 
-    diag_p = np.zeros((4, 4, *rho.shape))
+    diag_p = np.zeros((4, 4))
 
     diag_p[0, 0] = np.maximum(u - c, 0)
     diag_p[1, 1] = np.maximum(u, 0)
@@ -112,9 +113,11 @@ def steger_split_x(U):
     # diag_X_inv_U_p = np.einsum('pqkr,qkr->pkr', diag_p, X_inv_U)
     # F_p = np.einsum('pqkr,qkr->pkr', X, diag_X_inv_U_p)
 
+    # print(X@X_inv)
+
     F_p = X @ diag_p @ X_inv @ U
 
-    diag_m = np.zeros((4, 4, *rho.shape))
+    diag_m = np.zeros((4, 4))
 
     diag_m[0, 0] = np.minimum(u - c, 0)
     diag_m[1, 1] = np.minimum(u, 0)
@@ -125,6 +128,9 @@ def steger_split_x(U):
     # F_m = np.einsum('pqkr,qkr->pkr', X, diag_X_inv_U_m)
 
     F_m = X @ diag_m @ X_inv @ U
+    A = X @ (diag_m + diag_p) @ X_inv
+    print(A)
+    print(A @ U)
 
     return F_p, F_m
 
@@ -160,17 +166,63 @@ def steger_split_x(U):
 
 # print(A)
 
-U1 = compute_U(rho, u, v, p)
-U2 = compute_U(rho+drho, u+du, v+dv, p+dp)
+# U1 = compute_U(rho0, u0, v0, p0)
+# U2 = compute_U(rho0+drho, u0+du, v0+dv, p0+dp)
 
-F1, _ = compute_flux(rho, u, v, p)
-F2, _ = compute_flux(rho+drho, u+du, v+dv, p+dp)
+# F1, _ = compute_flux(rho0, u0, v0, p0)
+# F2, _ = compute_flux(rho0+drho, u0+du, v0+dv, p0+dp)
+# print("="*80)
+# print(F1, F2)
+# print("="*80)
 
-Fp1, Fm1 = steger_split_x(rho, u, v, p)
-Fp2, Fm2 = steger_split_x(rho+drho, u+du, v+dv, p+dp)
+# Fp1, Fm1 = steger_split_x(U1)
+# Fp2, Fm2 = steger_split_x(U2)
+# A1 = Fp1+Fm1
+# A2 = Fp2+Fm2
+# print(A2 - A1)
+# print("="*80)
+# print(Fp2 - Fp1)
+# print("="*80)
+# print(Fm2 - Fm1)
+# print("="*80)
+# print(F2 - F1)
 
-A1 = Fp1+Fm1
-A2 = Fp2+Fm2
-print(A2@U2 - A1@U1)
-print("="*80)
-print(F2-F1)
+
+def weno5_flux(fm2, fm1, f0, f1, f2, epsilon=1e-6):
+    """compute 5th order weno flux"""
+    f_0 = (1/3) * fm2 - (7/6) * fm1 + (11/6) * f0
+    f_1 = (-1/6) * fm1 + (5/6) * f0 + (1/3) * f1
+    f_2 = (1/3) * f0 + (5/6) * f1 - (1/6) * f2
+
+    beta_0 = (13/12) * (fm2 - 2*fm1 + f0)**2 + (1/4) * (fm2 - 4*fm1 + 3*f0)**2
+    beta_1 = (13/12) * (fm1 - 2*f0 + f1)**2 + (1/4) * (fm1 - f1)**2
+    beta_2 = (13/12) * (f0 - 2*f1 + f2)**2 + (1/4) * (3*f0 - 4*f1 + f2)**2
+
+    alpha_0 = 0.1 / (epsilon + beta_0)**2
+    alpha_1 = 0.6 / (epsilon + beta_1)**2
+    alpha_2 = 0.3 / (epsilon + beta_2)**2
+
+    alpha_sum = alpha_0 + alpha_1 + alpha_2
+    w_0 = alpha_0 / alpha_sum
+    w_1 = alpha_1 / alpha_sum
+    w_2 = alpha_2 / alpha_sum
+
+    weno_flux = w_0 * f_0 + w_1 * f_1 + w_2 * f_2
+
+    return weno_flux
+
+
+# F = np.random.rand(20)
+
+# G = weno5_flux(F[:-4], F[1:-3], F[2:-2], F[3:-1], F[4:])
+
+# G_aligned = np.concatenate((np.full(2, np.nan), G, np.full(2, np.nan)))
+
+# plt.plot(F, '-o', label='original')
+# plt.plot(G_aligned, '-o', label='smoothed by WENO')
+# plt.legend()
+# plt.savefig('./weno.png')
+# plt.show()
+
+x = np.array([1, 2, 3, 4, 5])
+print(x.shape[0])
