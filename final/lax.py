@@ -14,18 +14,21 @@ AE = 2.4
 DE = 4
 angle = 15
 
-nx = 200
-ny = 100
+nx = 400
+ny = 200
 dx = DE / nx
 dy = AE / ny
 
 R = 287.14
 gamma = 1.4
 
-nt = 25000
-interval = 500
+nt = 6000
+interval = 200
 
 dt = 1e-6
+
+eta = 0.3
+
 
 mesh_x, mesh_y, nx1 = generate_mesh(AB, AE, DE, angle, nx, ny)
 
@@ -57,11 +60,11 @@ def compute_flux(U):
 
     F[0] = rho * u
     F[1] = rho * u**2 + p
-    F[2] = rho * u * v + p
+    F[2] = rho * u * v
     F[3] = u * (E + p)
 
     G[0] = rho * v
-    G[1] = rho * u * v + p
+    G[1] = rho * u * v
     G[2] = rho * v**2 + p
     G[3] = v * (E + p)
 
@@ -81,8 +84,6 @@ def initial_conditions(nx, ny):
     p = np.ones((nx, ny)) * p1
 
     u[:nx//4, :] = u1
-    # u[:, ny-1] = u1
-    # u[:nx//4, 0] = u1
 
     return rho, u, v, p
 
@@ -142,8 +143,6 @@ def lax_step(U, dt):
     U_ave = 0.25 * (U[:, 2:-4, 3:-3] + U[:, 4:-2, 3:-3] +
                     U[:, 3:-3, 2:-4] + U[:, 3:-3, 4:-2])
     U_in = U[:, 3:-3, 3:-3]
-
-    eta = 0.3
 
     U_new[:, 3:-3, 3:-3] = eta * U_ave + (1-eta) * U_in + dt * dU_dt
 
@@ -305,3 +304,5 @@ for t in tqdm(range(nt), desc="time step"):
     if (t+1) % interval == 0:
         index = t//interval + 1
         paint(U, name=f"gif/shock_wave_{index:03d}s")
+
+np.save("./lax_state.npy", U)

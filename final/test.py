@@ -1,16 +1,8 @@
 import numpy as np
 from matplotlib import pyplot as plt
+from mesh import generate_mesh
 
-u0 = 13
-v0 = 21
-rho0 = 12
-p0 = 54
 gamma = 1.4
-
-du = 0.5
-dv = 0.3
-drho = 0.2
-dp = 0.01
 
 
 def compute_flux(rho, u, v, p):
@@ -224,5 +216,184 @@ def weno5_flux(fm2, fm1, f0, f1, f2, epsilon=1e-6):
 # plt.savefig('./weno.png')
 # plt.show()
 
-x = np.array([1, 2, 3, 4, 5])
-print(x.shape[0])
+# x = np.array([1, 2, 3, 4, 5])
+# print(x.shape[0])
+
+
+AB = 1
+AE = 2.4
+DE = 4
+angle = 15
+
+nx = 400
+ny = 200
+dx = DE / nx
+dy = AE / ny
+
+R = 287.14
+gamma = 1.4
+
+nt = 10000
+interval = 500
+
+dt = 1e-6
+
+eta = 0.3
+
+
+mesh_x, mesh_y, nx1 = generate_mesh(AB, AE, DE, angle, nx, ny)
+
+ans = np.zeros((nx, ny))
+
+beta = 79.8
+
+rho1 = 1.185
+
+rho2 = rho1 * (4*2.4*np.sin(beta)**2) / (4*0.4*np.sin(beta)**2 + 2)
+
+print(rho2)
+
+ftcs = np.load('./ftcs_state.npy')
+lax = np.load('lax_state.npy')
+roe = np.load('./roe_state.npy')
+
+for i in range(nx):
+    for j in range(ny):
+        x, y = mesh_x[i, j], mesh_y[i, j]
+        area = y - np.tan(np.deg2rad(beta)) * (x - AB)
+        ans[i, j] = rho1 if area >= 0 else rho2
+
+
+plt.figure(figsize=(20, 10))
+
+plt.subplot(221)
+plt.pcolormesh(mesh_x, mesh_y, ans, shading='auto',
+               cmap='viridis', vmin=1, vmax=3.2)
+plt.colorbar(label='Density')
+plt.title('Theoretical result')
+
+plt.subplot(222)
+plt.pcolormesh(mesh_x, mesh_y, ftcs[0, :, :], shading='auto',
+               cmap='viridis', vmin=1, vmax=3.2)
+plt.colorbar(label='Density')
+plt.title('FTCS - numerical result')
+
+plt.subplot(223)
+plt.pcolormesh(mesh_x, mesh_y, lax[0, :, :], shading='auto',
+               cmap='viridis', vmin=1, vmax=3.2)
+plt.colorbar(label='Density')
+plt.title('L-F method - numerical result')
+
+plt.subplot(224)
+plt.pcolormesh(mesh_x, mesh_y, roe[0, :, :], shading='auto',
+               cmap='viridis', vmin=1, vmax=3.2)
+plt.colorbar(label='Density')
+plt.title('Roe method - numerical result')
+plt.savefig('theoretical_density.png')
+plt.close()
+
+
+p1 = 99719
+
+p2 = p1 * (1 + 2.8/2.4 * (4*np.sin(beta)**2 - 1))
+
+print(p2)
+
+
+for i in range(nx):
+    for j in range(ny):
+        x, y = mesh_x[i, j], mesh_y[i, j]
+        area = y - np.tan(np.deg2rad(beta)) * (x - AB)
+        ans[i, j] = p1 if area >= 0 else p2
+
+plt.figure(figsize=(20, 10))
+
+plt.subplot(221)
+plt.pcolormesh(mesh_x, mesh_y, ans, shading='auto',
+               cmap='viridis', vmin=100000, vmax=600000)
+plt.colorbar(label='Pressure')
+plt.title('Theoretical result')
+
+U = ftcs.copy()
+p0 = (U[3] - 0.5 * U[0] * (U[1]**2 + U[2]**2) / U[0]**2) * (gamma - 1)
+
+plt.subplot(222)
+plt.pcolormesh(mesh_x, mesh_y, p0, shading='auto',
+               cmap='viridis', vmin=100000, vmax=600000)
+plt.colorbar(label='Pressure')
+plt.title('FTCS - numerical result')
+
+U = lax.copy()
+p0 = (U[3] - 0.5 * U[0] * (U[1]**2 + U[2]**2) / U[0]**2) * (gamma - 1)
+
+plt.subplot(223)
+plt.pcolormesh(mesh_x, mesh_y, p0, shading='auto',
+               cmap='viridis', vmin=100000, vmax=600000)
+plt.colorbar(label='Pressure')
+plt.title('L-F method - numerical result')
+
+U = roe.copy()
+p0 = (U[3] - 0.5 * U[0] * (U[1]**2 + U[2]**2) / U[0]**2) * (gamma - 1)
+
+plt.subplot(224)
+plt.pcolormesh(mesh_x, mesh_y, p0, shading='auto',
+               cmap='viridis', vmin=100000, vmax=600000)
+plt.colorbar(label='Pressure')
+plt.title('Roe method - numerical result')
+plt.savefig('theoretical_pressure.png')
+plt.close()
+
+
+T1 = 293.15
+
+T2 = T1 * (p2/p1) * (rho1/rho2)
+
+print(T2)
+
+
+for i in range(nx):
+    for j in range(ny):
+        x, y = mesh_x[i, j], mesh_y[i, j]
+        area = y - np.tan(np.deg2rad(beta)) * (x - AB)
+        ans[i, j] = T1 if area >= 0 else T2
+
+plt.figure(figsize=(20, 10))
+
+plt.subplot(221)
+plt.pcolormesh(mesh_x, mesh_y, ans, shading='auto',
+               cmap='viridis', vmin=250, vmax=600)
+plt.colorbar(label='Temperature')
+plt.title('Theoretical result')
+
+U = ftcs.copy()
+T0 = (U[3] - 0.5 * U[0] * (U[1]**2 + U[2]**2) /
+      U[0]**2) * (gamma - 1) / (U[0] * R)
+
+plt.subplot(222)
+plt.pcolormesh(mesh_x, mesh_y, T0, shading='auto',
+               cmap='viridis', vmin=250, vmax=600)
+plt.colorbar(label='Temperature')
+plt.title('FTCS - numerical result')
+
+U = lax.copy()
+T0 = (U[3] - 0.5 * U[0] * (U[1]**2 + U[2]**2) /
+      U[0]**2) * (gamma - 1) / (U[0] * R)
+
+
+plt.subplot(223)
+plt.pcolormesh(mesh_x, mesh_y, T0, shading='auto',
+               cmap='viridis', vmin=250, vmax=600)
+plt.colorbar(label='Temperature')
+plt.title('L-F method - numerical result')
+
+U = roe.copy()
+T0 = (U[3] - 0.5 * U[0] * (U[1]**2 + U[2]**2) /
+      U[0]**2) * (gamma - 1) / (U[0] * R)
+
+
+plt.subplot(224)
+plt.pcolormesh(mesh_x, mesh_y, T0, shading='auto',
+               cmap='viridis', vmin=250, vmax=600)
+plt.colorbar(label='Temperature')
+plt.title('Roe method - numerical result')
+plt.savefig('theoretical_temperature.png')

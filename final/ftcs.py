@@ -14,18 +14,21 @@ AE = 2.4
 DE = 4
 angle = 15
 
-nx = 200
-ny = 100
+nx = 400
+ny = 200
 dx = DE / nx
 dy = AE / ny
 
 R = 287.14
 gamma = 1.4
 
-nt = 30000
-interval = 500
+nt = 6000
+interval = 200
 
 dt = 1e-6
+
+eta = 0.3
+
 
 mesh_x, mesh_y, nx1 = generate_mesh(AB, AE, DE, angle, nx, ny)
 
@@ -57,11 +60,11 @@ def compute_flux(U):
 
     F[0] = rho * u
     F[1] = rho * u**2 + p
-    F[2] = rho * u * v + p
+    F[2] = rho * u * v
     F[3] = u * (E + p)
 
     G[0] = rho * v
-    G[1] = rho * u * v + p
+    G[1] = rho * u * v
     G[2] = rho * v**2 + p
     G[3] = v * (E + p)
 
@@ -79,6 +82,7 @@ def initial_conditions(nx, ny):
     u = np.zeros((nx, ny))
     v = np.zeros((nx, ny))
     p = np.ones((nx, ny)) * p1
+    # p[nx//4:, :] = p1 / 10
 
     u[:nx//4, :] = u1
     # u[:, ny-1] = u1
@@ -142,8 +146,6 @@ def ftcs_step(U, dt):
     U_ave = 0.25 * (U[:, 2:-4, 3:-3] + U[:, 4:-2, 3:-3] +
                     U[:, 3:-3, 2:-4] + U[:, 3:-3, 4:-2])
     U_in = U[:, 3:-3, 3:-3]
-
-    eta = 0.3
 
     U_new[:, 3:-3, 3:-3] = eta * U_ave + (1-eta) * U_in + dt * dU_dt
 
@@ -290,6 +292,73 @@ def draw_gif():
     print(f"GIF saved as {gif_path}")
 
 
+def paint_with_line(U, name="shock_wave"):
+    """plot the results"""
+    rho = U[0]
+    u = U[1] / rho
+    v = U[2] / rho
+    p = (gamma - 1) * (U[3] - 0.5 * rho * (u**2 + v**2))
+    T = p / (R * rho)
+
+    line_x = [1, 3.4]
+    line_y = [0, 2.4]
+
+    plt.figure(figsize=(16, 12))
+
+    plt.subplot(321)
+    plt.pcolormesh(mesh_x, mesh_y, rho, shading='auto',
+                   cmap='viridis')
+    plt.plot(line_x, line_y, color='gray',
+             linestyle='-.', linewidth=2, alpha=0.5)
+    plt.colorbar(label='Density')
+    plt.title('Density')
+
+    plt.subplot(322)
+    plt.pcolormesh(mesh_x, mesh_y, u, shading='auto',
+                   cmap='viridis')
+    plt.plot(line_x, line_y, color='gray',
+             linestyle='-.', linewidth=2, alpha=0.5)
+    plt.colorbar(label='Velocity u')
+    plt.title('Velocity u')
+
+    plt.subplot(323)
+    plt.pcolormesh(mesh_x, mesh_y, v, shading='auto',
+                   cmap='viridis')
+    plt.plot(line_x, line_y, color='gray',
+             linestyle='-.', linewidth=2, alpha=0.5)
+    plt.colorbar(label='Velocity v')
+    plt.title('Velocity v')
+
+    plt.subplot(324)
+    plt.pcolormesh(mesh_x, mesh_y, p, shading='auto',
+                   cmap='viridis')
+    plt.plot(line_x, line_y, color='gray',
+             linestyle='-.', linewidth=2, alpha=0.5)
+    plt.colorbar(label='Pressure')
+    plt.title('Pressure')
+
+    plt.subplot(325)
+    plt.pcolormesh(mesh_x, mesh_y, np.sqrt(u**2+v**2),
+                   shading='auto', cmap='viridis')
+    plt.plot(line_x, line_y, color='gray',
+             linestyle='-.', linewidth=2, alpha=0.5)
+    plt.colorbar(label='Velocity')
+    plt.title('Velocity')
+
+    plt.subplot(326)
+    plt.pcolormesh(mesh_x, mesh_y, T, shading='auto',
+                   cmap='viridis')
+    plt.plot(line_x, line_y, color='gray',
+             linestyle='-.', linewidth=2, alpha=0.5)
+    plt.colorbar(label='Temperature')
+    plt.title('Temperature')
+
+    plt.tight_layout()
+    plt.savefig('./fig/ftcs/'+name+'.png')
+    plt.show()
+    plt.close()
+
+
 rho, u, v, p = initial_conditions(nx, ny)
 E = p / (gamma - 1) + 0.5 * rho * (u**2 + v**2)
 U = np.zeros((4, nx, ny))
@@ -305,3 +374,7 @@ for t in tqdm(range(nt), desc="time step"):
     if (t+1) % interval == 0:
         index = t//interval + 1
         paint(U, name=f"gif/shock_wave_{index:03d}s")
+
+paint_with_line(U, name="contrast")
+
+np.save("./ftcs_state.npy", U)

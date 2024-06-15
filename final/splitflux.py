@@ -2,30 +2,6 @@
 import numpy as np
 
 
-def compute_flux(U):
-    """compute the flux vectors."""
-    gamma = 1.4
-    rho = U[0]
-    u = U[1] / rho
-    v = U[2] / rho
-    p = (gamma - 1) * (U[3] - 0.5 * rho * (u**2 + v**2))
-    E = p / (gamma - 1) + 0.5 * rho * (u**2 + v**2)
-    F = np.zeros((4, *rho.shape))
-    G = np.zeros((4, *rho.shape))
-
-    F[0] = rho * u
-    F[1] = rho * u**2 + p
-    F[2] = rho * u * v + p
-    F[3] = u * (E + p)
-
-    G[0] = rho * v
-    G[1] = rho * u * v + p
-    G[2] = rho * v**2 + p
-    G[3] = v * (E + p)
-
-    return F, G
-
-
 def ftcs_split_x(U):
     """split flux in x using FTCS"""
     gamma = 1.4
@@ -39,7 +15,7 @@ def ftcs_split_x(U):
 
     F[0] = rho * u
     F[1] = rho * u**2 + p
-    F[2] = rho * u * v + p
+    F[2] = rho * u * v
     F[3] = u * (E + p)
 
     F_mid = 0.5 * (F[:, :-1, :] + F[:, 1:, :])
@@ -59,7 +35,7 @@ def ftcs_split_y(U):
     G = np.zeros((4, *rho.shape))
 
     G[0] = rho * v
-    G[1] = rho * u * v + p
+    G[1] = rho * u * v
     G[2] = rho * v**2 + p
     G[3] = v * (E + p)
 
@@ -81,7 +57,7 @@ def steger_split_x(U):
 
     F[0] = rho * u
     F[1] = rho * u**2 + p
-    F[2] = rho * u * v + p
+    F[2] = rho * u * v
     F[3] = u * (E + p)
 
     e = gamma * p / (rho * (gamma-1))
@@ -170,7 +146,7 @@ def steger_split_y(U):
     G = np.zeros((4, *rho.shape))
 
     G[0] = rho * v
-    G[1] = rho * u * v + p
+    G[1] = rho * u * v
     G[2] = rho * v**2 + p
     G[3] = v * (E + p)
 
@@ -261,7 +237,7 @@ def roe_split_x(U):
 
     F[0] = rho0 * u0
     F[1] = rho0 * u0**2 + p0
-    F[2] = rho0 * u0 * v0 + p0
+    F[2] = rho0 * u0 * v0
     F[3] = u0 * (E0 + p0)
 
     UL = U[:, :-1, :]
@@ -359,7 +335,7 @@ def roe_split_y(U):
     G = np.zeros((4, *rho0.shape))
 
     G[0] = rho0 * v0
-    G[1] = rho0 * u0 * v0 + p0
+    G[1] = rho0 * u0 * v0
     G[2] = rho0 * v0**2 + p0
     G[3] = v0 * (E0 + p0)
 
@@ -459,7 +435,7 @@ def lax_split_x(U):
 
     F[0] = rho * u
     F[1] = rho * u**2 + p
-    F[2] = rho * u * v + p
+    F[2] = rho * u * v
     F[3] = u * (E + p)
 
     c = np.sqrt(gamma * p / rho)
@@ -493,7 +469,7 @@ def lax_split_y(U):
     G = np.zeros((4, *rho.shape))
 
     G[0] = rho * v
-    G[1] = rho * u * v + p
+    G[1] = rho * u * v
     G[2] = rho * v**2 + p
     G[3] = v * (E + p)
 
